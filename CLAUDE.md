@@ -105,6 +105,22 @@ run on a device. The first Android Studio / CI build is the first compile of
 UI prototype (clickable, all screens):
 https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
 
+## Release setup (done 2026-09-30)
+
+- Public repo https://github.com/AreebMughal/noteforge-vault, branch `main`.
+- Actions secrets set (Supabase URL/anon key, keystore base64/passwords/alias);
+  variables `APP_PACKAGE=com.noteforge.vault`, `GOOGLE_WEB_CLIENT_ID`.
+- Release signing key lives OUTSIDE the repo in `D:\Projects
+oteforge-vault-signing\`
+  (`release.jks`, `CREDENTIALS.txt`). Release SHA-1:
+  `E6:3A:66:25:E1:BA:EB:BE:72:E7:18:8E:C5:A4:4A:CD:46:3D:66:7C`.
+- Each release also uploads `NoteForge-Vault.apk`, so
+  https://github.com/AreebMughal/noteforge-vault/releases/latest/download/NoteForge-Vault.apk
+  is the permanent download link.
+- Blocked: the owner's GitHub account was locked for a billing issue, so no Actions job
+  has run yet. After it's unlocked: run "Release APK" manually (workflow_dispatch) to
+  prove the Gradle build, then `git tag v1.0.0 && git push origin v1.0.0`.
+
 ## Next steps
 
 1. Build locally: `npm install`, create `.env` from `.env.example`,
