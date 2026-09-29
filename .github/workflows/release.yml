@@ -1,0 +1,91 @@
+# Push a tag like v1.0.0 → builds a signed APK and attaches it to a GitHub Release.
+# Free: GitHub Actions minutes (unlimited on public repos, 2,000/month private).
+name: Release APK
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ vars.GOOGLE_WEB_CLIENT_ID }}
+      APP_PACKAGE: ${{ vars.APP_PACKAGE }}
+      APP_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Version from tag
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || V="0.0.0-dev"
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Check required secrets
+        run: |
+          for s in EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_ANON_KEY; do
+            [ -n "${!s}" ] || { echo "::error::Missing secret $s"; exit 1; }
+          done
+          [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || { echo "::error::Missing secret ANDROID_KEYSTORE_BASE64"; exit 1; }
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Generate native project
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build signed APK
+        env:
+          NF_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          NF_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NF_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export NF_UPLOAD_STORE_FILE="$RUNNER_TEMP/release.jks"
+          cd android
+          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+          rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Verify signature and package
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | tee signer.txt
+          grep -q "CN=Android Debug" signer.txt && { echo "::error::APK is debug-signed"; exit 1; } || true
+          OUT="NoteForge-Vault-${APP_VERSION}.apk"
+          cp "$APK" "$OUT"
+          # Fixed name too, so .../releases/latest/download/NoteForge-Vault.apk always serves the newest build.
+          cp "$APK" NoteForge-Vault.apk
+          sha256sum "$OUT" NoteForge-Vault.apk > "$OUT.sha256"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          make_latest: true
+          files: |
+            ${{ env.OUT }}
+            NoteForge-Vault.apk
+            ${{ env.OUT }}.sha256
+          body: |
+            **Download:** [NoteForge-Vault.apk](https://github.com/${{ github.repository }}/releases/latest/download/NoteForge-Vault.apk) (always the newest version)
+
+            Install: open this page on your Android phone, download the APK and allow "install unknown apps" for your browser when asked. To update, install the newer APK over the old one; your data stays.
+            Check the download matches the .sha256 file if you want to be sure it wasn't altered.
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with: { name: apk, path: ${{ env.OUT }} }

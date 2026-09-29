@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+android/
+ios/
+dist/
+*.jks
+*.keystore
+.env
+.env.local
+.idea/
+release.jks.b64
