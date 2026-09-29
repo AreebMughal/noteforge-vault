@@ -88,4 +88,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        with: { name: apk, path: ${{ env.OUT }} }
+        with:
+          name: apk
+          path: ${{ env.OUT }}
