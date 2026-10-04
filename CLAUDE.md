@@ -32,7 +32,20 @@ Hard constraints from the owner:
 - Never rebuild entries from a view model. Edit kdbxweb entries in place so
   custom fields, attachments, TOTP, auto-type and history survive.
 - Server never sees plaintext. No master-password reset exists; "forgot" =
-  delete the row and start over (typed DELETE confirmation).
+  delete the row and start over (typed DELETE confirmation). Never offered
+  for a OneDrive vault: the app must never delete someone's KeePass file.
+- **Shared vault choice** (web ⇄ mobile, both directions): Supabase Auth
+  `user_metadata.noteforge_vault` =
+  `{v:1, source:'account'|'onedrive', onedrive?:{fileId, path, account?}, updatedAt}`.
+  Written by whichever client *successfully unlocks* (or creates) a vault;
+  read after sign-in via `auth.getUser()` (server, not the JWT). Mirror files:
+  mobile `src/core/preference.ts` ⇄ web `lib/vault/preference.ts` — change both.
+  No choice + existing account row ⇒ account; neither ⇒ ask.
+- OneDrive mode = the web app's Graph flow: download via item metadata's
+  `downloadUrl` (metadata first, so the cTag matches the bytes), write with
+  `PUT …/content` + `If-Match: <cTag>`, 412 ⇒ merge + retry; >4 MB uses an
+  upload session with a manual tag check. `src/core/onedrive.ts`. The sync
+  engine's revision is an opaque string (Supabase version as text, or cTag).
 
 ## Architecture
 
@@ -42,8 +55,11 @@ src/core/     pure TS on kdbxweb, tested in Node — keep RN imports out of here
   entries.ts    list models (NO passwords), in-place edits, custom icons
   sync.ts       VaultSession: create/unlock/save/refresh, merge, offline cache
   selftest.ts   on-device known-answer test (fixture in selftest-fixture.ts)
+  favicon.ts    user-initiated site icon fetch; ico.ts/png.ts convert ICO → PNG
+  onedrive.ts   Graph client + VaultRemote for a KeePassXC file on OneDrive
+  preference.ts shared vault choice (mirror of the web app's)
 src/lib/      RN glue: supabase (+encrypted session storage), supabase-remote,
-              google sign-in, cache (expo-file-system), biometric, clipboard,
+              google sign-in, cache (expo-file-system), biometric, clipboard, icons,
               argon2 wiring, settings
 src/state/app.tsx   single provider: auth, session, auto-lock, saving
 src/app/      screens (Expo Router, guarded with Stack.Protected)
@@ -71,10 +87,32 @@ plugins/with-release-signing.js  injects release signing from CI env vars
   UI explains it is password-equivalent for this vault.
 - **Offline:** cache = same ciphertext as Supabase, per user, app-private dir.
   Offline unlock is **read-only**; `refresh()` makes it writable again.
-- **Entry icons:** only icons stored *inside* the .kdbx (e.g. KeePassXC's
-  "Download favicon"); PNG/JPEG/GIF/WebP shown, others fall back to the
-  coloured initial. Deliberately **no network favicon fetching** (would leak
-  the site list). Could become an opt-in setting.
+- **Entry icons:** displayed only from what is stored *inside* the .kdbx:
+  custom icons (PNG/JPEG/GIF/WebP; others fall back to the initial) or the
+  KeePass standard icon index (0–68, drawn with the nearest
+  MaterialCommunityIcons glyph, `src/ui/standardIcons.ts`; index 0 = the
+  coloured initial). The editor's "Change icon" offers: standard icons,
+  icons already in the vault, a picture from the phone (expo-image-picker,
+  square crop), or "Get icon from <host>". New images are shrunk to ≤96 px
+  PNG (expo-image-manipulator) and added to `meta.customIcons` only on Save,
+  deduplicated by bytes. The website fetch is **user-initiated, one entry at a
+  time, straight to that site** (`src/core/favicon.ts`, same logic as the web
+  app's `/api/vault/favicon`: `<link rel=icon>` then `/favicon.ico`; ICO is
+  converted to PNG in TS). No automatic/bulk fetching and no third-party
+  favicon service — that would leak the site list. The web endpoint isn't
+  used: it needs a cookie session, and RN fetch has no CORS to work around.
+- **OneDrive / KeePassXC:** Microsoft sign-in per device with
+  expo-auth-session (auth code + PKCE, public client, same Azure app
+  registration as the web, plus a "Mobile and desktop applications" redirect
+  `msal<client id>://auth` — Azure's portal rejected `noteforgevault://auth`;
+  app.config.ts adds the `msal…` scheme when the client id is set). Refresh token per NoteForge user in the encrypted
+  session storage; dropped on sign-out / Disconnect. Tokens are never shared
+  with the web (the web's MSAL cache is per tab, and SPA refresh tokens are
+  origin-bound, 24 h). `src/app/+native-intent.tsx` keeps Expo Router from
+  routing the `/auth` redirect. Cache and fingerprint unlock are per vault
+  (`<owner>` or `<owner>-od-<fileId>`). OneDrive files can't be created or
+  deleted from the app (KeePassXC owns them). Key files are not supported yet
+  on mobile (the web supports them).
 - **Google sign-in:** `@react-native-google-signin/google-signin` 16.x free
   API → ID token → `supabase.auth.signInWithIdToken({provider:'google'})`,
   same as the web app. `webClientId` = the web app's Web client ID. Button
@@ -98,9 +136,17 @@ JS bundle exports, `expo prebuild` generates the native project with signing,
 `allowBackup=false`, and the local module autolinked. Real KeePassXC 2.7.6
 round trip succeeded (both directions).
 
-**Not yet verified:** a Gradle build (no Android SDK in the sandbox) and any
-run on a device. The first Android Studio / CI build is the first compile of
-`modules/vault-native` (Kotlin) and of the native deps.
+2026-10-03, local Windows machine: debug Gradle build succeeds (x86_64,
+`./gradlew app:assembleDebug -PreactNativeArchitectures=x86_64`; first build
+~1.5 h, mostly quick-crypto's C++). On the `Pixel_6_API_33` emulator the
+startup self-test passes and the sign-in screen renders. The very first launch
+crashed once with a native SIGSEGV in Fabric
+(`MountingCoordinator::pullTransaction`, JS thread); relaunch was fine and it
+hasn't come back. Watch for it.
+
+**Not yet verified:** the flows after sign-in (step 2 below), a release build,
+and a physical device. Screenshots and `adb screencap` come out blank because
+of FLAG_SECURE; use `adb shell uiautomator dump` to inspect the screen.
 
 UI prototype (clickable, all screens):
 https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
@@ -129,12 +175,19 @@ https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
    conflict test (edit on web and phone) → export .kdbx opens in KeePassXC →
    offline read-only → fingerprint unlock → Google sign-in.
 3. Release: README steps (keystore, GitHub secrets/variables, `git tag v1.0.0`).
-4. Later / not started: OneDrive (KeePassXC live sync) mode, iOS, Android
+4. OneDrive mode is built (2026-10-03) but not yet tried against real
+   Microsoft: needs `EXPO_PUBLIC_AZURE_CLIENT_ID` and the mobile redirect URI
+   in Azure. Then test: web picks OneDrive → phone opens same file; phone
+   picks first → web skips chooser; KeePassXC edit → 412 merge.
+5. Later / not started: key files on mobile, iOS, Android
    Autofill service, optional favicon download, Play Store (closed-test rule:
    12 testers for 14 days for new personal accounts — recheck).
 
 ## Open items for the owner
 
+- Azure: the web app's client id/tenant into `.env` (`EXPO_PUBLIC_AZURE_*`)
+  and a GitHub Actions variable for release builds; tick redirect URI
+  `msal<client id>://auth` under Authentication → Mobile and desktop.
 - Package id (placeholder `com.noteforge.vault`, set via `APP_PACKAGE`) —
   fixed forever after first release.
 - Supabase URL + anon key (same as the web app's `.env.local`).

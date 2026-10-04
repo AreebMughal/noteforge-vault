@@ -59,14 +59,26 @@ export function applyStrongKdf(db: kdbxweb.Kdbx) {
 }
 
 export function readKdfParams(db: kdbxweb.Kdbx) {
-  const p = db.header.kdfParameters!;
+  const p = db.header.kdfParameters;
   const num = (v: unknown) => (v instanceof kdbxweb.Int64 ? v.value : Number(v));
+  // KDBX 3.1 files (older KeePassXC/KeePass) have no KDF parameters: AES-KDF with rounds in the header.
+  if (!p) return { uuid: kdbxweb.Consts.KdfId.Aes, memory: 0, iterations: 0, parallelism: 0, rounds: 0 };
   return {
     uuid: String(p.get('$UUID') ? kdbxweb.ByteUtils.bytesToBase64(p.get('$UUID') as ArrayBuffer) : ''),
-    memory: num(p.get('M')),
-    iterations: num(p.get('I')),
-    parallelism: num(p.get('P')),
+    memory: num(p.get('M') ?? 0),
+    iterations: num(p.get('I') ?? 0),
+    parallelism: num(p.get('P') ?? 0),
+    /** AES-KDF only. */
+    rounds: num(p.get('R') ?? 0),
   };
+}
+
+/** One line for Settings: "Argon2id 64 MiB · 4 passes · parallelism 2" or "AES-KDF". */
+export function describeKdf(db: kdbxweb.Kdbx) {
+  const k = readKdfParams(db);
+  if (k.uuid === kdbxweb.Consts.KdfId.Aes) return k.rounds ? `AES-KDF · ${k.rounds.toLocaleString()} rounds` : 'AES-KDF';
+  const name = k.uuid === kdbxweb.Consts.KdfId.Argon2id ? 'Argon2id' : 'Argon2d';
+  return `${name} ${Math.round(k.memory / 1048576)} MiB · ${k.iterations} passes · parallelism ${k.parallelism}`;
 }
 
 export function createVault(creds: kdbxweb.KdbxCredentials, name = 'NoteForge Vault'): kdbxweb.Kdbx {

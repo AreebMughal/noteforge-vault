@@ -3,11 +3,12 @@ import { Alert, Linking, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useApp } from '../../state/app';
 import {
-  createEntry, customIconUris, deleteEntry, entryIconId, fieldText, findEntry, generatePassword, hiddenExtras, listGroups, moveEntry, updateEntry,
-  type EntryFields,
+  addCustomIcon, createEntry, customIconUris, deleteEntry, entryIconId, fieldText, findEntry, generatePassword, hiddenExtras, iconChoiceOf,
+  listGroups, moveEntry, updateEntry, type EntryFields, type IconChoice,
 } from '../../core/entries';
 import { copyPlain, copySecret } from '../../lib/clipboard';
 import { EntryIcon } from '../../ui/EntryIcon';
+import { IconPicker, draftUri, type IconDraft } from '../../ui/IconPicker';
 import { Banner, Body, Button, Card, Choice, Field, Screen, Small, errorText, HeaderLink, hostOf } from '../../ui/components';
 import { space, type, useTheme } from '../../ui/theme';
 
@@ -85,7 +86,7 @@ function EntryView({ entryId }: { entryId: string }) {
   return (
     <Screen>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        <EntryIcon uri={iconUri} seed={hostOf(url) || title} label={title} size={56} />
+        <EntryIcon uri={iconUri} standard={entry.icon} seed={hostOf(url) || title} label={title} size={56} />
         <Text style={[type.title, { color: t.ink, flex: 1 }]} numberOfLines={2}>{title || 'Untitled'}</Text>
       </View>
       {copied && <Banner tone="info">{copied}</Banner>}
@@ -153,6 +154,9 @@ function EntryEditor({ entryId, defaultGroup, onDone }: { entryId: string | null
   );
   const groups = listGroups(db);
   const [groupId, setGroupId] = useState(existing?.parentGroup?.uuid.id ?? defaultGroup ?? groups[0]?.id);
+  const vaultIcons = useMemo(() => customIconUris(db), [db, app.revision]);
+  const [icon, setIcon] = useState<IconDraft>(() => (existing ? iconChoiceOf(db, existing) : { standard: 0 }));
+  const [picking, setPicking] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,11 +168,13 @@ function EntryEditor({ entryId, defaultGroup, onDone }: { entryId: string | null
     let newId: string | undefined;
     try {
       await app.mutate((d) => {
+        // A new image joins the vault only now, on Save (identical images are reused).
+        const choice: IconChoice = 'newPng' in icon ? { customId: addCustomIcon(d, icon.newPng) } : icon;
         if (existing) {
-          updateEntry(existing, f);
+          updateEntry(existing, { ...f, icon: choice }, d);
           if (groupId) moveEntry(d, existing, groupId);
         } else {
-          newId = createEntry(d, groupId ?? null, f).uuid.id;
+          newId = createEntry(d, groupId ?? null, f, choice).uuid.id;
         }
       });
       onDone(newId);
@@ -198,8 +204,28 @@ function EntryEditor({ entryId, defaultGroup, onDone }: { entryId: string | null
     ]);
   }
 
+  const seed = hostOf(f.url) || f.title;
+  if (picking) {
+    return (
+      <IconPicker
+        value={icon} url={f.url} seed={seed} label={f.title} vaultIcons={vaultIcons}
+        onPick={(d) => { setIcon(d); setPicking(false); }}
+        onCancel={() => setPicking(false)}
+      />
+    );
+  }
+
   return (
     <Screen>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+        <EntryIcon
+          key={'newPng' in icon ? 'new' : JSON.stringify(icon)}
+          uri={draftUri(icon, vaultIcons)}
+          standard={'standard' in icon ? icon.standard : 0}
+          seed={seed} label={f.title} size={56}
+        />
+        <HeaderLink label="Change icon" onPress={() => setPicking(true)} />
+      </View>
       <Field label="Title" value={f.title} onChangeText={set('title')} autoCapitalize="sentences" autoFocus={!existing} />
       <Field label="Username" value={f.username} onChangeText={set('username')} />
       <Field

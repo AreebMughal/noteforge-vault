@@ -6,7 +6,7 @@ import { File, Paths } from 'expo-file-system';
 import Constants from 'expo-constants';
 import { useApp } from '../state/app';
 import { biometricsAvailable } from '../lib/biometric';
-import { readKdfParams } from '../core/kdbx';
+import { describeKdf } from '../core/kdbx';
 import { Banner, Body, Button, Card, Choice, Screen, Small, errorText } from '../ui/components';
 import { space, useTheme } from '../ui/theme';
 
@@ -19,7 +19,7 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => { biometricsAvailable().then(setBioAvailable, () => setBioAvailable(false)); }, []);
-  const kdf = app.session ? readKdfParams(app.session.db) : null;
+  const kdf = app.session ? describeKdf(app.session.db) : null;
 
   async function toggleBiometric(on: boolean) {
     setError(null);
@@ -111,10 +111,29 @@ export default function Settings() {
 
       <Card>
         <Body style={{ fontWeight: '600' }}>Vault</Body>
+        {app.vault.kind === 'onedrive' ? (
+          <Small>
+            KeePassXC file {app.vault.file.path} on OneDrive ({app.microsoftAccount ?? 'not connected'}). Changes go
+            straight to OneDrive; KeePassXC and the web app pick them up from there.
+          </Small>
+        ) : (
+          <Small>Stored in your NoteForge account. The web app opens the same vault.</Small>
+        )}
         <Button kind="secondary" label="Groups" onPress={() => router.push('/groups')} />
         <Button kind="secondary" label="Check for changes" onPress={sync} busy={busy === 'sync'} />
         <Button kind="secondary" label="Export .kdbx file" onPress={exportVault} busy={busy === 'export'} />
         <Small>The exported file is encrypted with your master password and opens in KeePassXC.</Small>
+        {app.vault.kind === 'onedrive' && (
+          <Button kind="quiet" label="Disconnect OneDrive on this phone" onPress={() =>
+            Alert.alert(
+              'Disconnect OneDrive?',
+              'This phone signs out of Microsoft and locks. Your KeePassXC file and your choice on other devices stay as they are; connect again to reopen it.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Disconnect', style: 'destructive', onPress: () => app.disconnectMicrosoft().catch((e) => setError(errorText(e))) },
+              ],
+            )} />
+        )}
       </Card>
 
       <Card>
@@ -130,8 +149,8 @@ export default function Settings() {
         <Small>Signed in as {app.auth?.user.email}</Small>
         {kdf && (
           <Small>
-            Encryption: Argon2 {Math.round(kdf.memory / 1048576)} MiB · {kdf.iterations} passes · parallelism {kdf.parallelism}
-            {app.session ? ` · version ${app.session.version}` : ''}
+            Encryption: {kdf}
+            {app.session && app.vault.kind === 'account' ? ` · version ${app.session.revision}` : ''}
           </Small>
         )}
         <Small>NoteForge Vault {Constants.expoConfig?.version}</Small>

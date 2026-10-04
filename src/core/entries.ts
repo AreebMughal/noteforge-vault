@@ -10,6 +10,8 @@ export interface EntrySummary {
   title: string;
   username: string;
   url: string;
+  /** Whether a password is set (never the password itself). */
+  hasPassword: boolean;
   groupId: string;
   groupName: string;
   icon: number;
@@ -35,6 +37,12 @@ export function fieldText(entry: kdbxweb.KdbxEntry, name: string): string {
   const v = entry.fields.get(name);
   if (v === undefined) return '';
   return v instanceof kdbxweb.ProtectedValue ? v.getText() : String(v);
+}
+
+function hasPassword(entry: kdbxweb.KdbxEntry) {
+  const v = entry.fields.get('Password');
+  if (v === undefined) return false;
+  return v instanceof kdbxweb.ProtectedValue ? v.byteLength > 0 : v !== '';
 }
 
 function recycleBinId(db: kdbxweb.Kdbx) {
@@ -68,6 +76,7 @@ export function listEntries(db: kdbxweb.Kdbx): EntrySummary[] {
         title: fieldText(e, 'Title'),
         username: fieldText(e, 'UserName'),
         url: fieldText(e, 'URL'),
+        hasPassword: hasPassword(e),
         groupId: g.uuid.id,
         groupName: g.name ?? '',
         icon: e.icon ?? 0,
@@ -99,8 +108,30 @@ export function hiddenExtras(entry: kdbxweb.KdbxEntry) {
   };
 }
 
+/**
+ * An entry's icon: one of KeePass's 69 standard icons (by index, shared with
+ * KeePassXC) or a custom image stored in the vault's meta. Index 0 ("key")
+ * is the default; this app shows it as the coloured initial.
+ */
+export type IconChoice = { standard: number } | { customId: string };
+
+export function iconChoiceOf(db: kdbxweb.Kdbx, entry: kdbxweb.KdbxEntry): IconChoice {
+  const custom = entryIconId(db, entry);
+  return custom ? { customId: custom } : { standard: entry.icon ?? 0 };
+}
+
+function applyIcon(db: kdbxweb.Kdbx, entry: kdbxweb.KdbxEntry, icon: IconChoice) {
+  if ('customId' in icon) {
+    if (!db.meta.customIcons.has(icon.customId)) throw new Error('That icon is no longer in the vault');
+    entry.customIcon = new kdbxweb.KdbxUuid(icon.customId);
+  } else {
+    entry.customIcon = undefined;
+    entry.icon = icon.standard;
+  }
+}
+
 /** Edit standard fields in place (history snapshot first). Only changed fields are written. */
-export function updateEntry(entry: kdbxweb.KdbxEntry, next: Partial<EntryFields> & { icon?: number }) {
+export function updateEntry(entry: kdbxweb.KdbxEntry, next: Partial<EntryFields> & { icon?: IconChoice }, db?: kdbxweb.Kdbx) {
   const map: [keyof EntryFields, string][] = [
     ['title', 'Title'],
     ['username', 'UserName'],
@@ -109,19 +140,23 @@ export function updateEntry(entry: kdbxweb.KdbxEntry, next: Partial<EntryFields>
     ['notes', 'Notes'],
   ];
   const changes = map.filter(([k, f]) => next[k] !== undefined && next[k] !== fieldText(entry, f));
-  const iconChanged = next.icon !== undefined && next.icon !== entry.icon;
+  const icon = next.icon;
+  const iconChanged = icon !== undefined && (
+    'customId' in icon ? entry.customIcon?.id !== icon.customId : entry.customIcon !== undefined || (entry.icon ?? 0) !== icon.standard
+  );
+  if (iconChanged && !db) throw new Error('updateEntry needs the database to change an icon');
   if (!changes.length && !iconChanged) return false;
   entry.pushHistory();
   for (const [k, f] of changes) {
     const v = next[k]!;
     entry.fields.set(f, f === 'Password' ? kdbxweb.ProtectedValue.fromString(v) : v);
   }
-  if (iconChanged) entry.icon = next.icon;
+  if (iconChanged) applyIcon(db!, entry, icon!);
   entry.times.update();
   return true;
 }
 
-export function createEntry(db: kdbxweb.Kdbx, groupId: string | null, fields: EntryFields, icon = 0) {
+export function createEntry(db: kdbxweb.Kdbx, groupId: string | null, fields: EntryFields, icon: IconChoice = { standard: 0 }) {
   const group = (groupId && findGroup(db, groupId)) || db.getDefaultGroup();
   const e = db.createEntry(group);
   e.fields.set('Title', fields.title);
@@ -129,9 +164,27 @@ export function createEntry(db: kdbxweb.Kdbx, groupId: string | null, fields: En
   e.fields.set('Password', kdbxweb.ProtectedValue.fromString(fields.password));
   e.fields.set('URL', fields.url);
   e.fields.set('Notes', fields.notes);
-  e.icon = icon;
+  e.icon = 0;
+  applyIcon(db, e, icon);
   e.times.update();
   return e;
+}
+
+/**
+ * Stores an image as a vault custom icon and returns its id. Identical bytes
+ * reuse the existing icon so picking the same favicon twice doesn't grow the
+ * vault. Unused icons are dropped by kdbxweb's cleanup during merge.
+ */
+export function addCustomIcon(db: kdbxweb.Kdbx, bytes: Uint8Array): string {
+  if (!iconMime(bytes)) throw new Error('Icons must be PNG, JPEG, GIF or WebP');
+  for (const [id, icon] of db.meta.customIcons) {
+    const have = new Uint8Array(icon.data);
+    if (have.length === bytes.length && have.every((b, i) => b === bytes[i])) return id;
+  }
+  const id = kdbxweb.KdbxUuid.random().id;
+  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  db.meta.customIcons.set(id, { data, lastModified: new Date() });
+  return id;
 }
 
 /** KeePass semantics: delete moves to the recycle bin (as KeePassXC does). */

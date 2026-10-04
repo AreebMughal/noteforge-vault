@@ -2,7 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, View } from 'react-native';
 import { useApp } from '../state/app';
 import { isWrongPasswordError } from '../core/kdbx';
+import { MicrosoftSignInRequired } from '../core/onedrive';
+import { oneDriveEnabled } from '../lib/config';
 import { Banner, Body, Button, Field, Screen, Small, Title, errorText } from '../ui/components';
+import { ConnectOneDrive, VaultChooser } from '../ui/VaultChooser';
 import { useTheme } from '../ui/theme';
 
 export default function Unlock() {
@@ -14,6 +17,10 @@ export default function Unlock() {
   const [error, setError] = useState<string | null>(null);
   const [forgetting, setForgetting] = useState(false);
   const [typed, setTyped] = useState('');
+  // "Use a different vault": the chooser, without forgetting the current choice until another one opens.
+  const [switching, setSwitching] = useState(false);
+  const vaultId = app.vault.kind === 'onedrive' ? `od:${app.vault.file.fileId}` : app.vault.kind;
+  useEffect(() => { setSwitching(false); setError(null); setPassword(''); }, [vaultId]);
 
   // Offer the fingerprint prompt straight away when it's set up.
   useEffect(() => {
@@ -27,6 +34,7 @@ export default function Unlock() {
     try {
       await app.unlockWithBiometric();
     } catch (e) {
+      if (e instanceof MicrosoftSignInRequired) return;
       setError(isWrongPasswordError(e) ? 'The master password was changed on another device. Enter the new one.' : errorText(e));
     } finally {
       setBusy(false);
@@ -40,6 +48,7 @@ export default function Unlock() {
       await app.unlock(password);
       setPassword('');
     } catch (e) {
+      if (e instanceof MicrosoftSignInRequired) return;
       setError(isWrongPasswordError(e) ? 'That master password is incorrect.' : errorText(e));
     } finally {
       setBusy(false);
@@ -80,7 +89,18 @@ export default function Unlock() {
       { text: 'Sign out', style: 'destructive', onPress: () => app.signOut() },
     ]);
 
-  if (app.probe === 'unknown') {
+  if (switching || app.vault.kind === 'choose') {
+    return (
+      <VaultChooser
+        email={email}
+        onSignOut={signOut}
+        canGoBack={switching}
+        onBack={() => setSwitching(false)}
+      />
+    );
+  }
+
+  if (app.vault.kind === 'loading' || app.probe === 'unknown') {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg }}>
         <ActivityIndicator color={t.accent} size="large" />
@@ -95,6 +115,28 @@ export default function Unlock() {
         <Body>This phone has no saved copy of your vault yet. Connect to the internet once to download it.</Body>
         <Button label="Try again" onPress={app.reprobe} />
         <Button kind="quiet" label={`Sign out of ${email}`} onPress={signOut} />
+      </Screen>
+    );
+  }
+
+  const isOneDrive = app.vault.kind === 'onedrive';
+  const where = app.vault.kind === 'onedrive' ? app.vault.file.path : null;
+
+  if (app.vault.kind === 'onedrive' && app.probe === 'needs-microsoft') {
+    return <ConnectOneDrive path={app.vault.file.path} onSignOut={signOut} onSwitch={() => setSwitching(true)} />;
+  }
+
+  if (isOneDrive && app.probe === 'missing') {
+    return (
+      <Screen style={{ paddingTop: 72 }}>
+        <Title>Vault file not found</Title>
+        <Body>
+          {where} isn’t in {app.microsoftAccount ?? 'this OneDrive'} any more. It may have been moved, renamed or
+          deleted, or it’s in a different Microsoft account.
+        </Body>
+        <Button label="Choose the file again" onPress={() => setSwitching(true)} />
+        <Button kind="quiet" label="Try again" onPress={app.reprobe} />
+        <Button kind="quiet" label="Sign out" onPress={signOut} />
       </Screen>
     );
   }
@@ -116,6 +158,7 @@ export default function Unlock() {
         {error && <Banner tone="danger">{error}</Banner>}
         <Button label="Create vault" onPress={create} busy={busy} disabled={password.length < 10 || confirm !== password} />
         {busy && <Small>Deriving the key takes a few seconds on purpose — it’s what makes guessing slow.</Small>}
+        {oneDriveEnabled && <Button kind="quiet" label="Use my KeePassXC file instead" onPress={() => setSwitching(true)} />}
         <Button kind="quiet" label={`Sign out of ${email}`} onPress={signOut} />
       </Screen>
     );
@@ -141,7 +184,7 @@ export default function Unlock() {
   return (
     <Screen style={{ paddingTop: 72 }}>
       <Title>Unlock vault</Title>
-      <Body muted>{email}</Body>
+      <Body muted>{where ? `${where} · OneDrive` : email}</Body>
       {app.probe === 'offline-cached' && (
         <Banner>You’re offline. You can view the copy saved on this phone; changes need a connection.</Banner>
       )}
@@ -149,7 +192,12 @@ export default function Unlock() {
       {error && <Banner tone="danger">{error}</Banner>}
       <Button label="Unlock" onPress={unlock} busy={busy} disabled={!password} />
       {app.biometricReady && <Button kind="secondary" label="Unlock with fingerprint" onPress={tryBiometric} disabled={busy} />}
-      <Button kind="quiet" label="Forgot master password?" onPress={() => setForgetting(true)} />
+      {isOneDrive ? (
+        <Small>This is your KeePassXC database, so use its master password. To change or reset it, use KeePassXC.</Small>
+      ) : (
+        <Button kind="quiet" label="Forgot master password?" onPress={() => setForgetting(true)} />
+      )}
+      {oneDriveEnabled && <Button kind="quiet" label="Use a different vault" onPress={() => setSwitching(true)} />}
       <Button kind="quiet" label="Sign out" onPress={signOut} />
     </Screen>
   );

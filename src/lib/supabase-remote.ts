@@ -31,22 +31,28 @@ export function supabaseRemote(ownerId: string): VaultRemote {
       const { data, error } = await supabase.from('vaults').select('data, version, name').eq('owner_id', ownerId).maybeSingle();
       check(error);
       if (!data) return null;
-      return { data: new Uint8Array(Buffer.from(data.data, 'base64')), version: data.version, name: data.name };
+      return { data: new Uint8Array(Buffer.from(data.data, 'base64')), revision: String(data.version), name: data.name };
+    }),
+    revision: () => guard(async () => {
+      const { data, error } = await supabase.from('vaults').select('version').eq('owner_id', ownerId).maybeSingle();
+      check(error);
+      return data ? String(data.version) : null;
     }),
     insert: (bytes, name) => guard(async () => {
       const { data, error } = await supabase.from('vaults')
         .insert({ owner_id: ownerId, name, data: encode(bytes), byte_size: bytes.byteLength, version: 1 })
         .select('version').single();
       check(error);
-      return data!.version as number;
+      return String(data!.version);
     }),
-    update: (bytes, expected) => guard(async () => {
+    update: (bytes, expectedRevision) => guard(async () => {
+      const expected = Number(expectedRevision);
       const { data, error } = await supabase.from('vaults')
         .update({ data: encode(bytes), byte_size: bytes.byteLength, version: expected + 1, updated_at: new Date().toISOString() })
         .eq('owner_id', ownerId).eq('version', expected)
         .select('version');
       check(error);
-      return data && data.length ? (data[0].version as number) : null;
+      return data && data.length ? String(data[0].version) : null;
     }),
     remove: () => guard(async () => {
       const { error } = await supabase.from('vaults').delete().eq('owner_id', ownerId);

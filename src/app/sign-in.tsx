@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 import { googleEnabled } from '../lib/config';
 import { signInWithGoogle } from '../lib/google';
 import { space, type, useTheme } from '../ui/theme';
 import { Banner, Body, Button, Field, Screen, Title, errorText } from '../ui/components';
+import { GoogleButton } from '../ui/GoogleButton';
 
 export default function SignIn() {
   const t = useTheme();
@@ -66,13 +66,7 @@ export default function SignIn() {
             <Text style={[type.small, { color: t.muted }]}>or</Text>
             <View style={{ flex: 1, height: 1, backgroundColor: t.line }} />
           </View>
-          {/* Google's own branded button, as its brand guidelines require. */}
-          <GoogleSigninButton
-            size={GoogleSigninButton.Size.Wide}
-            onPress={google}
-            disabled={googleBusy || busy}
-            style={{ alignSelf: 'stretch', height: 52 }}
-          />
+          <GoogleButton onPress={google} busy={googleBusy} disabled={busy} />
         </>
       )}
       <Button

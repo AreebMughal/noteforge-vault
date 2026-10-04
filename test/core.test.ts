@@ -11,7 +11,8 @@ import {
   installArgon2, credentialsFromPassword, credentialsFromPasswordHash, exportPasswordHash,
   openVault, readKdfParams, isWrongPasswordError, looksLikeKdbx,
 } from '../src/core/kdbx';
-import { customIconUris, iconMime, createEntry, findEntry, listEntries, updateEntry, fieldText, hiddenExtras, generatePassword, deleteEntry } from '../src/core/entries';
+import { customIconUris, iconMime, createEntry, findEntry, listEntries, updateEntry, fieldText, hiddenExtras, generatePassword, deleteEntry, addCustomIcon, iconChoiceOf } from '../src/core/entries';
+import { encodePng } from '../src/core/png';
 import { VaultSession, VaultRemote, OfflineError, VaultCache, ReadOnlyError } from '../src/core/sync';
 
 const hashWasmArgon2: Parameters<typeof installArgon2>[0] = async (password, salt, memory, iterations, length, parallelism, type, version) => {
@@ -26,7 +27,7 @@ const hashWasmArgon2: Parameters<typeof installArgon2>[0] = async (password, sal
 installArgon2(hashWasmArgon2);
 
 class FakeRemote implements VaultRemote {
-  row: { data: Uint8Array; version: number; name: string } | null = null;
+  row: { data: Uint8Array; revision: string; name: string } | null = null;
   offline = false;
   writes = 0;
   async fetch() {
@@ -35,22 +36,22 @@ class FakeRemote implements VaultRemote {
   }
   async insert(data: Uint8Array, name: string) {
     if (this.row) throw new Error('duplicate');
-    this.row = { data, version: 1, name };
-    return 1;
+    this.row = { data, revision: '1', name };
+    return '1';
   }
-  async update(data: Uint8Array, expected: number) {
+  async update(data: Uint8Array, expected: string) {
     if (this.offline) throw new OfflineError();
-    if (!this.row || this.row.version !== expected) return null;
+    if (!this.row || this.row.revision !== expected) return null;
     this.writes++;
-    this.row = { ...this.row, data, version: expected + 1 };
-    return expected + 1;
+    this.row = { ...this.row, data, revision: String(Number(expected) + 1) };
+    return this.row.revision;
   }
   async remove() { this.row = null; }
 }
 class MemCache implements VaultCache {
-  v: { data: Uint8Array; version: number } | null = null;
+  v: { data: Uint8Array; revision: string } | null = null;
   async read() { return this.v; }
-  async write(data: Uint8Array, version: number) { this.v = { data, version }; }
+  async write(data: Uint8Array, revision: string) { this.v = { data, revision }; }
   async clear() { this.v = null; }
 }
 const blank = { title: '', username: '', password: '', url: '', notes: '' };
@@ -65,7 +66,7 @@ test('new vault uses Argon2id 64 MiB / 4 / 2 and survives a round trip', async (
   assert.equal(kdf.uuid, kdbxweb.Consts.KdfId.Argon2id);
   assert.deepEqual([kdf.memory, kdf.iterations, kdf.parallelism], [64 * 1024 * 1024, 4, 2]);
   assert.equal(db.header.versionMajor, 4);
-  assert.equal(s.version, 1);
+  assert.equal(s.revision, '1');
 });
 
 test('wrong password is reported as such', async () => {
@@ -123,7 +124,7 @@ test('write conflict → merge → both devices\u2019 changes survive', async ()
   const titles = listEntries(final).map((e) => e.title).sort();
   assert.deepEqual(titles, ['Added on phone', 'Added on web', 'Shared']);
   assert.equal(fieldText(findEntry(final, shared.uuid.id)!, 'UserName'), 'renamed on phone');
-  assert.equal(remote.row!.version, 4);
+  assert.equal(remote.row!.revision, '4');
 });
 
 test('deletion on one device is not resurrected by the other', async () => {
@@ -216,4 +217,51 @@ test('custom icons stored in the vault surface as data URIs; unknown formats fal
   assert.ok(byTitle['Ico'] && !uris.has(byTitle['Ico']));   // stored, but shown as the initial
   assert.equal(byTitle['Plain'], null);
   assert.equal(iconMime(ico), null);
+});
+
+test('icons picked on the phone are stored once, survive save and merge, and keep history', async () => {
+  const remote = new FakeRemote();
+  const s = await VaultSession.create(remote, null, credentialsFromPassword('pw'));
+  const png = encodePng(1, 1, Uint8Array.from([255, 0, 0, 255]));
+  const e = createEntry(s.db, null, { ...blank, title: 'Site' }, { standard: 37 });
+  assert.deepEqual(iconChoiceOf(s.db, e), { standard: 37 });
+  const id = addCustomIcon(s.db, png);
+  assert.equal(addCustomIcon(s.db, png.slice()), id); // identical bytes reuse the icon
+  assert.throws(() => addCustomIcon(s.db, Uint8Array.from([1, 2, 3])));
+  assert.equal(updateEntry(e, { icon: { customId: id } }, s.db), true);
+  assert.equal(updateEntry(e, { icon: { customId: id } }, s.db), false); // no-op is not a change
+  assert.equal(e.history.length, 1);
+  assert.equal(e.history[0].icon, 37);
+  await s.save();
+
+  // A concurrent write elsewhere forces a merge; the icon must come through it.
+  const other = await VaultSession.unlock(remote, null, credentialsFromPassword('pw'));
+  createEntry(other.db, null, { ...blank, title: 'Other' });
+  await other.save();
+  await new Promise((r) => setTimeout(r, 1100));
+  createEntry(s.db, null, { ...blank, title: 'Local' });
+  assert.equal((await s.save()).merged, true);
+
+  const db = await openVault(remote.row!.data, credentialsFromPassword('pw'));
+  const site = listEntries(db).find((x) => x.title === 'Site')!;
+  assert.equal(site.customIconId, id);
+  assert.equal(new Uint8Array(db.meta.customIcons.get(id)!.data).length, png.length);
+  assert.ok(customIconUris(db).get(id)!.startsWith('data:image/png;base64,'));
+
+  // Back to a standard icon clears the custom one.
+  const again = findEntry(db, site.id)!;
+  updateEntry(again, { icon: { standard: 0 } }, db);
+  assert.equal(again.customIcon, undefined);
+  assert.deepEqual(iconChoiceOf(db, again), { standard: 0 });
+});
+
+test('list model says whether a password exists without carrying it', async () => {
+  const remote = new FakeRemote();
+  const s = await VaultSession.create(remote, null, credentialsFromPassword('pw'));
+  createEntry(s.db, null, { ...blank, title: 'With', password: 'hunter2' });
+  createEntry(s.db, null, { ...blank, title: 'Without' });
+  const rows = Object.fromEntries(listEntries(s.db).map((e) => [e.title, e]));
+  assert.equal(rows.With.hasPassword, true);
+  assert.equal(rows.Without.hasPassword, false);
+  assert.ok(!JSON.stringify(rows).includes('hunter2'));
 });

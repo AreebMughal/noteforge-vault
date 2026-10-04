@@ -2,6 +2,9 @@ import type { ExpoConfig } from 'expo/config';
 
 // Change before your first public release — Android treats a new package id as a different app.
 const PACKAGE = process.env.APP_PACKAGE || 'com.noteforge.vault';
+// Microsoft sign-in returns to msal<client id>://auth, the redirect Azure offers for
+// "Mobile and desktop applications". The app must own that scheme to receive it.
+const AZURE_CLIENT_ID = process.env.EXPO_PUBLIC_AZURE_CLIENT_ID || '';
 
 const config: ExpoConfig = {
   name: 'NoteForge Vault',
@@ -9,7 +12,7 @@ const config: ExpoConfig = {
   version: process.env.APP_VERSION || '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
-  scheme: 'noteforgevault',
+  scheme: AZURE_CLIENT_ID ? ['noteforgevault', `msal${AZURE_CLIENT_ID}`] : 'noteforgevault',
   userInterfaceStyle: 'automatic',
   android: {
     package: PACKAGE,
