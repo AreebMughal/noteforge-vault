@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { Appearance, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session } from '@supabase/supabase-js';
 import type * as kdbxweb from 'kdbxweb';
@@ -12,7 +12,7 @@ import { signOutOfGoogle } from '../lib/google';
 import { MicrosoftConnection } from '../lib/microsoft';
 import { readPreference, writePreference } from '../lib/preference';
 import { oneDriveEnabled } from '../lib/config';
-import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../lib/settings';
+import { DEFAULT_SETTINGS, loadSettings, loadTheme, saveSettings, saveTheme, type Settings, type ThemeMode } from '../lib/settings';
 import * as bio from '../lib/biometric';
 import { runSelfTest } from '../core/selftest';
 import { credentialsFromPassword, credentialsFromPasswordHash, exportPasswordHash } from '../core/kdbx';
@@ -54,6 +54,9 @@ interface AppCtx {
   revision: number;
   saveState: SaveState;
   settings: Settings;
+  /** Light / dark / follow the phone. Saved per user on this phone; never touches the web app. */
+  themeMode: ThemeMode;
+  setThemeMode(mode: ThemeMode): void;
   biometricReady: boolean;
   touch(): void;
   reprobe(): Promise<void>;
@@ -133,6 +136,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [revision, setRevision] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>({ status: 'idle' });
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
   const [biometricReady, setBiometricReady] = useState(false);
   const lastActivity = useRef(Date.now());
   const sessionRef = useRef<VaultSession | null>(null);
@@ -160,6 +164,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const r = await runSelfTest();
       if (!r.ok) setSelfTestError(`${r.step}: ${r.error}`);
       setSettings(await loadSettings());
+      const lastTheme = await loadTheme(null);
+      if (lastTheme) setThemeModeState(lastTheme);
       const { data } = await supabase.auth.getSession();
       setAuth(data.session);
       setBooting(false);
@@ -167,6 +173,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setAuth(s));
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Theme: apply it to the whole app (and Android's dialogs); 'unspecified' = follow the phone.
+  useEffect(() => {
+    Appearance.setColorScheme(themeMode === 'system' ? 'unspecified' : themeMode);
+  }, [themeMode]);
+  // Each user's own choice on this phone wins once we know who is signed in.
+  useEffect(() => {
+    if (!ownerId) return;
+    loadTheme(ownerId).then((m) => m && setThemeModeState(m));
+  }, [ownerId]);
 
   // Which vault? The account's saved choice, else an existing account vault, else ask.
   useEffect(() => {
@@ -283,8 +299,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value: AppCtx = {
-    booting, selfTestError, auth, vault, probe, microsoftAccount, lastOneDrive, session, revision, saveState, settings, biometricReady,
+    booting, selfTestError, auth, vault, probe, microsoftAccount, lastOneDrive, session, revision, saveState, settings, themeMode, biometricReady,
     touch, reprobe, lock,
+    setThemeMode(mode) {
+      setThemeModeState(mode);
+      saveTheme(ownerId, mode);
+    },
     chooseAccountVault() {
       setVault({ kind: 'account' });
     },

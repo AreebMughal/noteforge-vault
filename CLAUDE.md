@@ -129,6 +129,12 @@ plugins/with-release-signing.js  injects release signing from CI env vars
   directly. Settings has a vault switch (`app.switchVault`): locks, opens the other
   vault's unlock screen; the saved choice only changes once that vault unlocks. The last
   KeePassXC file is remembered per user on the phone (`last-onedrive-<owner>`).
+- **Theme:** Settings → Appearance (Match phone / Light / Dark), applied with
+  `Appearance.setColorScheme` ('unspecified' = follow phone, so dialogs and status bar
+  follow too). Saved per user in AsyncStorage (`nf-theme-<owner>`, plus `nf-theme-last` for
+  the sign-in screen); deliberately NOT in Supabase/user_metadata, and independent of the
+  web app's theme. Tappable things use the `outline` token (≥3:1 on bg in both themes);
+  `line` is only for dividers/card edges. Keep it that way for new buttons.
 - **Merge limit:** KDBX 4 stores times in whole seconds; two changes to the
   same entry within one second can't be ordered (same in KeePassXC). Tests
   use >1 s gaps on purpose.

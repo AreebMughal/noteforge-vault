@@ -91,6 +91,20 @@ export default function Settings() {
       {notice && <Banner tone="info">{notice}</Banner>}
 
       <Card>
+        <Body style={{ fontWeight: '600' }}>Appearance</Body>
+        <Choice
+          options={[
+            { label: 'Match phone', value: 'system' as const },
+            { label: 'Light', value: 'light' as const },
+            { label: 'Dark', value: 'dark' as const },
+          ]}
+          value={app.themeMode}
+          onChange={app.setThemeMode}
+        />
+        <Small>Only changes this app, and is remembered for your account on this phone. The web app keeps its own theme.</Small>
+      </Card>
+
+      <Card>
         <Body style={{ fontWeight: '600' }}>Lock the vault after</Body>
         <Choice
           options={[

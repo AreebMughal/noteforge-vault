@@ -45,7 +45,9 @@ export function Button({ label, onPress, kind = 'primary', busy, disabled }: {
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: bg, opacity: disabled ? 0.45 : pressed ? 0.8 : 1 },
-        kind === 'secondary' && { borderWidth: StyleSheet.hairlineWidth, borderColor: t.line },
+        // Outlined, so a button never reads as plain text (dark theme especially).
+        kind === 'secondary' && { borderWidth: 1.5, borderColor: t.outline },
+        kind === 'quiet' && { borderWidth: 1, borderColor: t.outline },
       ]}
     >
       {busy ? <ActivityIndicator color={fg} /> : <Text style={[type.body, { color: fg, fontWeight: '600' }]}>{label}</Text>}
@@ -60,7 +62,7 @@ export function Field({ label, secret, mono, right, ...props }: TextInputProps &
   return (
     <View style={{ gap: space.xs }}>
       <Small>{label}</Small>
-      <View style={[styles.input, { backgroundColor: t.surface, borderColor: t.line }]}>
+      <View style={[styles.input, { backgroundColor: t.surface, borderColor: t.outline }]}>
         <TextInput
           placeholderTextColor={t.muted}
           secureTextEntry={secret}
@@ -106,7 +108,11 @@ export function KeyTag({ seed, label, size = 40 }: { seed: string; label: string
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   const t = useTheme();
-  return <View style={[{ backgroundColor: t.surface, borderRadius: 14, padding: space.lg, gap: space.md }, style]}>{children}</View>;
+  return (
+    <View style={[{ backgroundColor: t.surface, borderRadius: 14, padding: space.lg, gap: space.md, borderWidth: 1, borderColor: t.line }, style]}>
+      {children}
+    </View>
+  );
 }
 
 export function Choice<T extends string | number>({ options, value, onChange }: {
@@ -124,8 +130,8 @@ export function Choice<T extends string | number>({ options, value, onChange }: 
             accessibilityState={{ selected: on }}
             onPress={() => onChange(o.value)}
             style={{
-              paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: 999,
-              backgroundColor: on ? t.accent : t.sunken,
+              paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: 999, borderWidth: 1,
+              backgroundColor: on ? t.accent : t.surface, borderColor: on ? t.accent : t.outline,
             }}
           >
             <Text style={[type.small, { color: on ? t.accentInk : t.ink, fontWeight: on ? '600' : '400' }]}>{o.label}</Text>
@@ -138,7 +144,7 @@ export function Choice<T extends string | number>({ options, value, onChange }: 
 
 const styles = StyleSheet.create({
   button: { minHeight: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
-  input: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.md },
+  input: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, paddingHorizontal: space.md },
   banner: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: 10, borderLeftWidth: 4 },
 });
 

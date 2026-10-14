@@ -7,11 +7,12 @@ import { useColorScheme } from 'react-native';
  */
 const light = {
   bg: '#E9EDF1', surface: '#FFFFFF', sunken: '#DCE2E8', ink: '#15202B', muted: '#5A6876',
-  line: '#C9D2DB', accent: '#2B5C8F', accentInk: '#FFFFFF', danger: '#A8322A', warn: '#8A5A00', warnBg: '#F6EAD2',
+  line: '#C9D2DB', outline: '#6E8296', accent: '#2B5C8F', accentInk: '#FFFFFF', danger: '#A8322A', warn: '#8A5A00', warnBg: '#F6EAD2',
 };
 const dark: typeof light = {
-  bg: '#0E141A', surface: '#172029', sunken: '#0A0F14', ink: '#E4EAF0', muted: '#8E9CAA',
-  line: '#27333F', accent: '#86AEDB', accentInk: '#0E141A', danger: '#F08C82', warn: '#E9C27A', warnBg: '#2B2415',
+  bg: '#0E141A', surface: '#1B2733', sunken: '#0A0F14', ink: '#E4EAF0', muted: '#9AA8B6',
+  // `line` = quiet dividers and card edges; `outline` = edges of things you can tap or type in.
+  line: '#34465A', outline: '#6A819A', accent: '#86AEDB', accentInk: '#0E141A', danger: '#F08C82', warn: '#E9C27A', warnBg: '#2B2415',
 };
 export type Palette = typeof light;
 export const useTheme = (): Palette => (useColorScheme() === 'dark' ? dark : light);

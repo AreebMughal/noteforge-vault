@@ -105,7 +105,7 @@ export default function VaultList() {
             onPress={() => push({ pathname: '/entry/[id]', params: { id: item.id } })}
             style={({ pressed }) => ({
               flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md,
-              borderRadius: 14, backgroundColor: pressed ? t.sunken : t.surface,
+              borderRadius: 14, backgroundColor: pressed ? t.sunken : t.surface, borderWidth: 1, borderColor: t.line,
             })}
           >
             <EntryIcon uri={item.customIconId ? icons.get(item.customIconId) : null} standard={item.icon} seed={hostOf(item.url) || item.title} label={item.title} />

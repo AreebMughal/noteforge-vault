@@ -80,7 +80,7 @@ function Choice({ glyph, title, body, onPress, busy }: {
       disabled={busy}
       style={({ pressed }) => ({
         flexDirection: 'row', gap: space.md, padding: space.lg, borderRadius: 14,
-        backgroundColor: pressed ? t.sunken : t.surface, alignItems: 'flex-start',
+        backgroundColor: pressed ? t.sunken : t.surface, alignItems: 'flex-start', borderWidth: 1, borderColor: t.line,
       })}
     >
       <MaterialCommunityIcons name={glyph} size={28} color={t.accent} />
@@ -147,7 +147,7 @@ export function OneDriveFilePicker({ onBack }: { onBack: () => void }) {
               onPress={() => app.chooseOneDriveFile(f)}
               style={({ pressed }) => ({
                 flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: 14,
-                backgroundColor: pressed ? t.sunken : t.surface,
+                backgroundColor: pressed ? t.sunken : t.surface, borderWidth: 1, borderColor: t.line,
               })}
             >
               <MaterialCommunityIcons name="file-key-outline" size={26} color={t.accent} />
