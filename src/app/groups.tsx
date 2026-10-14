@@ -13,12 +13,31 @@ export default function Groups() {
   const [name, setName] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const run = (fn: () => void) => app.mutate(fn).catch((e) => setError(errorText(e)));
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  /** Applies the change, saves the vault, and reports the outcome. Resolves true on success. */
+  const run = async (fn: () => void, done: string) => {
+    setError(null);
+    setNotice(null);
+    setBusy(true);
+    try {
+      await app.mutate(fn);
+      setNotice(done);
+      return true;
+    } catch (e) {
+      setError(errorText(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
   const readOnly = app.session?.readOnly;
 
   return (
     <Screen>
-      {error && <Banner tone="danger">{error}</Banner>}
+      {error && <Banner tone="danger">Not saved: {error}</Banner>}
+      {busy && <Banner tone="info">Saving…</Banner>}
+      {notice && !busy && !error && <Banner tone="info">{notice}</Banner>}
       <Card>
         {groups.map((g, i) => (
           <View key={g.id} style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: g.depth * space.lg }}>
@@ -33,7 +52,7 @@ export default function Groups() {
                 onPress={() =>
                   Alert.alert(`Delete “${g.name}”?`, 'The group and its logins move to the recycle bin.', [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => run(() => deleteGroup(db, findGroup(db, g.id)!)) },
+                    { text: 'Delete', style: 'destructive', onPress: () => run(() => deleteGroup(db, findGroup(db, g.id)!), `Deleted “${g.name}”`) },
                   ])
                 }
               />
@@ -46,8 +65,9 @@ export default function Groups() {
           <Field label="New name" value={renaming.name} onChangeText={(v) => setRenaming({ ...renaming, name: v })} autoCapitalize="sentences" autoFocus />
           <Button label="Save name" disabled={!renaming.name.trim()} onPress={() => {
             const g = findGroup(db, renaming.id);
-            if (g) run(() => renameGroup(g, renaming.name.trim()));
+            const next = renaming.name.trim();
             setRenaming(null);
+            if (g) run(() => renameGroup(g, next), `Renamed to “${next}”`);
           }} />
           <Button kind="secondary" label="Cancel" onPress={() => setRenaming(null)} />
         </Card>
@@ -55,7 +75,15 @@ export default function Groups() {
       {!readOnly && (
         <>
           <Field label="New group" value={name} onChangeText={setName} autoCapitalize="sentences" placeholder="e.g. Work" />
-          <Button label="Add group" disabled={!name.trim()} onPress={() => { run(() => createGroup(db, null, name.trim())); setName(''); }} />
+          <Button
+            label="Add group"
+            busy={busy}
+            disabled={!name.trim()}
+            onPress={async () => {
+              const n = name.trim();
+              if (await run(() => createGroup(db, null, n), `Added “${n}”`)) setName('');
+            }}
+          />
         </>
       )}
     </Screen>
