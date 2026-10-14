@@ -4,6 +4,7 @@ import {
   type TextInputProps, type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { space, tagColor, type, useTheme } from './theme';
 
 export function Screen({ children, scroll = true, style }: { children: React.ReactNode; scroll?: boolean; style?: ViewStyle }) {
@@ -148,6 +149,30 @@ export function errorText(e: unknown) {
 export function hostOf(url: string) {
   const m = /^(?:[a-z]+:\/\/)?([^/?#:]+)/i.exec(url.trim());
   return m ? m[1].replace(/^www\./, '') : '';
+}
+
+/** Round icon-only button (44 dp touch target). `label` is read out by screen readers. */
+export function IconButton({ glyph, label, onPress, color, busy, size = 24 }: {
+  glyph: React.ComponentProps<typeof MaterialCommunityIcons>['name']; label: string; onPress?: () => void;
+  color?: string; busy?: boolean; size?: number;
+}) {
+  const t = useTheme();
+  const tint = color ?? t.accent;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      disabled={busy || !onPress}
+      hitSlop={4}
+      style={({ pressed }) => ({
+        width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: pressed ? t.sunken : 'transparent',
+      })}
+    >
+      {busy ? <ActivityIndicator color={tint} size="small" /> : <MaterialCommunityIcons name={glyph} size={size} color={tint} />}
+    </Pressable>
+  );
 }
 
 export function HeaderLink({ label, onPress }: { label: string; onPress: () => void }) {

@@ -1,18 +1,19 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { useNavigation, useRouter } from 'expo-router';
+import { useNavigation } from 'expo-router';
 import { useApp } from '../state/app';
 import { customIconUris, fieldText, findEntry, listEntries, listGroups, type EntrySummary } from '../core/entries';
 import { copyPlain, copySecret } from '../lib/clipboard';
+import { useSafePush } from '../lib/navigation';
 import { EntryIcon } from '../ui/EntryIcon';
-import { Banner, Button, Choice, Field, HeaderLink, Small, errorText, hostOf } from '../ui/components';
+import { Banner, Choice, Field, HeaderLink, IconButton, Small, errorText, hostOf } from '../ui/components';
 import { space, type, useTheme } from '../ui/theme';
 
 export default function VaultList() {
   const app = useApp();
   const t = useTheme();
-  const router = useRouter();
+  const push = useSafePush();
   const nav = useNavigation();
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState<string>('all');
@@ -46,16 +47,10 @@ export default function VaultList() {
   const groups = useMemo(() => (db ? listGroups(db) : []), [db, app.revision]);
   const icons = useMemo(() => (db ? customIconUris(db) : new Map<string, string>()), [db, app.revision]);
 
+  // HeaderActions reads live state itself, so this only needs setting once.
   useLayoutEffect(() => {
-    nav.setOptions({
-      headerRight: () => (
-        <View style={{ flexDirection: 'row', gap: space.lg }}>
-          <HeaderLink label="Lock" onPress={app.lock} />
-          <HeaderLink label="Settings" onPress={() => router.push('/settings')} />
-        </View>
-      ),
-    });
-  }, [nav, app.lock, router]);
+    nav.setOptions({ headerRight: () => <HeaderActions /> });
+  }, [nav]);
 
   const q = query.trim().toLowerCase();
   const shown = entries.filter(
@@ -107,7 +102,7 @@ export default function VaultList() {
         }
         renderItem={({ item }) => (
           <Pressable
-            onPress={() => router.push({ pathname: '/entry/[id]', params: { id: item.id } })}
+            onPress={() => push({ pathname: '/entry/[id]', params: { id: item.id } })}
             style={({ pressed }) => ({
               flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md,
               borderRadius: 14, backgroundColor: pressed ? t.sunken : t.surface,
@@ -130,12 +125,25 @@ export default function VaultList() {
         )}
       />
       {(copied || !readOnly) && (
-        <View style={{ position: 'absolute', left: space.lg, right: space.lg, bottom: space.xl, gap: space.sm }}>
-          {copied && <Banner tone={copied.tone}>{copied.text}</Banner>}
-          {!readOnly && <Button
-            label="Add login"
-            onPress={() => router.push({ pathname: '/entry/[id]', params: { id: 'new', group: group === 'all' ? '' : group } })}
-          />}
+        <View
+          pointerEvents="box-none"
+          style={{ position: 'absolute', left: space.lg, right: space.lg, bottom: space.xl, gap: space.md, alignItems: 'flex-end' }}
+        >
+          {copied && <View style={{ alignSelf: 'stretch' }}><Banner tone={copied.tone}>{copied.text}</Banner></View>}
+          {!readOnly && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add login"
+              onPress={() => push({ pathname: '/entry/[id]', params: { id: 'new', group: group === 'all' ? '' : group } })}
+              style={({ pressed }) => ({
+                width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: t.accent, opacity: pressed ? 0.85 : 1, elevation: 6,
+                shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
+              })}
+            >
+              <MaterialCommunityIcons name="plus" size={30} color={t.accentInk} />
+            </Pressable>
+          )}
         </View>
       )}
     </View>
@@ -162,3 +170,49 @@ function CopyButton({ glyph, label, onPress }: {
   );
 }
 
+type Sync = 'synced' | 'syncing' | 'offline' | 'error';
+
+/**
+ * Header: cloud (sync status; tap to check for changes or retry), lock, settings.
+ * The cloud is "synced" only when nothing is saving, nothing failed to save, and
+ * this isn't a read-only offline copy.
+ */
+function HeaderActions() {
+  const app = useApp();
+  const t = useTheme();
+  const push = useSafePush();
+  const [checking, setChecking] = useState(false);
+  const readOnly = !!app.session?.readOnly;
+  const state: Sync =
+    app.saveState.status === 'error' ? 'error'
+      : app.saveState.status === 'saving' || checking ? 'syncing'
+        : readOnly ? 'offline' : 'synced';
+
+  const look: Record<Sync, { glyph: React.ComponentProps<typeof MaterialCommunityIcons>['name']; color: string; label: string }> = {
+    synced: { glyph: 'cloud-check-outline', color: t.accent, label: 'Synced. Tap to check for changes' },
+    syncing: { glyph: 'cloud-sync-outline', color: t.muted, label: 'Syncing' },
+    offline: { glyph: 'cloud-off-outline', color: t.warn, label: 'Offline, read-only copy. Tap to reconnect' },
+    error: { glyph: 'cloud-alert-outline', color: t.danger, label: 'Not saved. Tap to retry' },
+  };
+
+  async function onSync() {
+    if (state === 'syncing') return;
+    setChecking(true);
+    try {
+      if (state === 'error') await app.retrySave();
+      else await app.refresh();
+    } catch (e) {
+      Alert.alert(state === 'error' ? 'Couldn’t save' : 'Couldn’t reach your vault', errorText(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <IconButton glyph={look[state].glyph} color={look[state].color} label={look[state].label} onPress={onSync} />
+      <IconButton glyph="lock-outline" label="Lock vault" onPress={app.lock} />
+      <IconButton glyph="cog-outline" label="Settings" onPress={() => push('/settings')} />
+    </View>
+  );
+}

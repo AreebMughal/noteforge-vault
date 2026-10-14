@@ -122,6 +122,13 @@ plugins/with-release-signing.js  injects release signing from CI env vars
   lock on leaving the app), FLAG_SECURE via expo-screen-capture, passwords
   decrypted only on Show/Copy, clipboard marked sensitive and cleared after
   15 s by a native timer, `allowBackup: false`.
+- **UI conventions (2026-10-14):** vault header = cloud sync-status icon (tap: check /
+  retry; synced / syncing / offline read-only / not saved), lock, settings — icons only.
+  "Add login" is a round plus button bottom-right. All pushes go through `useSafePush`
+  (`src/lib/navigation.ts`, ignores repeat taps for 1 s) — don't call `router.push`
+  directly. Settings has a vault switch (`app.switchVault`): locks, opens the other
+  vault's unlock screen; the saved choice only changes once that vault unlocks. The last
+  KeePassXC file is remembered per user on the phone (`last-onedrive-<owner>`).
 - **Merge limit:** KDBX 4 stores times in whole seconds; two changes to the
   same entry within one second can't be ordered (same in KeePassXC). Tests
   use >1 s gaps on purpose.

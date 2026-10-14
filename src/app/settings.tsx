@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Switch, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { File, Paths } from 'expo-file-system';
 import Constants from 'expo-constants';
 import { useApp } from '../state/app';
 import { biometricsAvailable } from '../lib/biometric';
+import { oneDriveEnabled } from '../lib/config';
+import { useSafePush } from '../lib/navigation';
 import { describeKdf } from '../core/kdbx';
 import { Banner, Body, Button, Card, Choice, Screen, Small, errorText } from '../ui/components';
 import { space, useTheme } from '../ui/theme';
@@ -13,7 +14,7 @@ import { space, useTheme } from '../ui/theme';
 export default function Settings() {
   const app = useApp();
   const t = useTheme();
-  const router = useRouter();
+  const push = useSafePush();
   const [bioAvailable, setBioAvailable] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,21 @@ export default function Settings() {
       if (file.exists) file.delete();
       setBusy(null);
     }
+  }
+
+  /** Settings switch between the two places a vault can live. Nothing is deleted or moved. */
+  function switchVault(to: 'account' | 'onedrive') {
+    if ((to === 'onedrive') === (app.vault.kind === 'onedrive')) return;
+    const name = to === 'account' ? 'your NoteForge account vault' : 'your KeePassXC file on OneDrive';
+    Alert.alert(
+      'Switch vault?',
+      `The vault locks now, then you unlock ${name} with its master password. Neither vault is changed or deleted. ` +
+        'Once it unlocks, the web app follows this choice too.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Switch', onPress: () => app.switchVault(to) },
+      ],
+    );
   }
 
   async function sync() {
@@ -111,6 +127,16 @@ export default function Settings() {
 
       <Card>
         <Body style={{ fontWeight: '600' }}>Vault</Body>
+        {oneDriveEnabled && (
+          <Choice
+            options={[
+              { label: 'NoteForge account', value: 'account' },
+              { label: 'KeePassXC (OneDrive)', value: 'onedrive' },
+            ]}
+            value={app.vault.kind === 'onedrive' ? 'onedrive' : 'account'}
+            onChange={switchVault}
+          />
+        )}
         {app.vault.kind === 'onedrive' ? (
           <Small>
             KeePassXC file {app.vault.file.path} on OneDrive ({app.microsoftAccount ?? 'not connected'}). Changes go
@@ -119,7 +145,7 @@ export default function Settings() {
         ) : (
           <Small>Stored in your NoteForge account. The web app opens the same vault.</Small>
         )}
-        <Button kind="secondary" label="Groups" onPress={() => router.push('/groups')} />
+        <Button kind="secondary" label="Groups" onPress={() => push('/groups')} />
         <Button kind="secondary" label="Check for changes" onPress={sync} busy={busy === 'sync'} />
         <Button kind="secondary" label="Export .kdbx file" onPress={exportVault} busy={busy === 'export'} />
         <Small>The exported file is encrypted with your master password and opens in KeePassXC.</Small>

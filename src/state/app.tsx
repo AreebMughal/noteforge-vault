@@ -48,6 +48,8 @@ interface AppCtx {
   probe: Probe;
   /** The Microsoft account this phone is connected to, if any. */
   microsoftAccount: string | null;
+  /** The KeePassXC file last opened on this phone, so switching back needs no picking. */
+  lastOneDrive: OneDriveRef | null;
   session: VaultSession | null;
   revision: number;
   saveState: SaveState;
@@ -58,6 +60,11 @@ interface AppCtx {
   /** Vault-source choice (first run, or "Use a different vault"). Saved to the account on unlock. */
   chooseAccountVault(): void;
   chooseOneDriveFile(file: VaultFile): void;
+  /**
+   * Settings switch: lock, then open the other vault's unlock screen. The saved
+   * choice (and so the web app) only changes once that vault actually unlocks.
+   */
+  switchVault(to: 'account' | 'onedrive'): void;
   connectMicrosoft(): Promise<boolean>;
   disconnectMicrosoft(): Promise<void>;
   listOneDriveFiles(): Promise<VaultFile[]>;
@@ -96,6 +103,15 @@ async function rememberPref(owner: string, pref: VaultPreference) {
   await AsyncStorage.setItem(localPrefKey(owner), JSON.stringify(pref)).catch(() => undefined);
   await writePreference(pref);
 }
+const lastOneDriveKey = (owner: string) => `last-onedrive-${owner}`;
+async function readLastOneDrive(owner: string): Promise<OneDriveRef | null> {
+  try {
+    const v = JSON.parse((await AsyncStorage.getItem(lastOneDriveKey(owner))) ?? 'null');
+    return v && typeof v.fileId === 'string' && typeof v.path === 'string' ? (v as OneDriveRef) : null;
+  } catch {
+    return null;
+  }
+}
 function targetOf(pref: VaultPreference): VaultTarget {
   if (pref.source === 'onedrive' && oneDriveEnabled) return { kind: 'onedrive', file: pref.onedrive };
   return { kind: 'account' };
@@ -112,6 +128,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [vault, setVault] = useState<VaultTarget>({ kind: 'loading' });
   const [probe, setProbe] = useState<Probe>('unknown');
   const [microsoftAccount, setMicrosoftAccount] = useState<string | null>(null);
+  const [lastOneDrive, setLastOneDrive] = useState<OneDriveRef | null>(null);
   const [session, setSession] = useState<VaultSession | null>(null);
   const [revision, setRevision] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>({ status: 'idle' });
@@ -159,6 +176,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       setVault({ kind: 'loading' });
       setMicrosoftAccount((await microsoft?.account()) ?? null);
+      setLastOneDrive(await readLastOneDrive(ownerId));
       const local = await readLocalPref(ownerId);
       let pref: VaultPreference | null;
       try {
@@ -249,6 +267,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? oneDrivePreference({ ...vault.file, account: microsoftAccount ?? vault.file.account })
         : accountPreference();
       rememberPref(ownerId, pref).catch(() => undefined);
+      if (vault.kind === 'onedrive') {
+        setLastOneDrive(vault.file);
+        AsyncStorage.setItem(lastOneDriveKey(ownerId), JSON.stringify(vault.file)).catch(() => undefined);
+      }
     }
   };
 
@@ -261,13 +283,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value: AppCtx = {
-    booting, selfTestError, auth, vault, probe, microsoftAccount, session, revision, saveState, settings, biometricReady,
+    booting, selfTestError, auth, vault, probe, microsoftAccount, lastOneDrive, session, revision, saveState, settings, biometricReady,
     touch, reprobe, lock,
     chooseAccountVault() {
       setVault({ kind: 'account' });
     },
     chooseOneDriveFile(file) {
       setVault({ kind: 'onedrive', file: { fileId: file.id, path: file.path, ...(microsoftAccount ? { account: microsoftAccount } : {}) } });
+    },
+    switchVault(to) {
+      lock();
+      if (to === 'account') setVault({ kind: 'account' });
+      else setVault(lastOneDrive ? { kind: 'onedrive', file: lastOneDrive } : { kind: 'choose' });
     },
     async connectMicrosoft() {
       if (!microsoft) return false;

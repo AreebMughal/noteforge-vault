@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useApp } from '../../state/app';
@@ -169,7 +169,11 @@ function EntryEditor({ entryId, defaultGroup, onDone }: { entryId: string | null
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof EntryFields) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
+  const saving = useRef(false);
   async function save() {
+    // State updates are async, so two quick taps could both pass the disabled check.
+    if (saving.current) return;
+    saving.current = true;
     setBusy(true);
     setError(null);
     let newId: string | undefined;
@@ -190,6 +194,7 @@ function EntryEditor({ entryId, defaultGroup, onDone }: { entryId: string | null
       setError(errorText(e));
       if (newId) onDone(newId);
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
