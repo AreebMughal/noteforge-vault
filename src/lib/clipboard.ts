@@ -3,12 +3,15 @@ import { CLIPBOARD_CLEAR_MS } from './config';
 
 /** Copies marked sensitive; a native timer clears it after 15 s (best effort). */
 export async function copySecret(text: string) {
-  if (!VaultNative) throw new Error('Clipboard module unavailable on this platform');
-  await VaultNative.copySensitive(text, CLIPBOARD_CLEAR_MS);
+  await native().copySensitive(text, CLIPBOARD_CLEAR_MS);
 }
+/** Same as copySecret but never auto-cleared (usernames aren't secret). Fails loudly, never silently. */
 export async function copyPlain(text: string) {
-  if (!VaultNative) return;
-  await VaultNative.copySensitive(text, 0);
+  await native().copySensitive(text, 0);
+}
+function native() {
+  if (!VaultNative) throw new Error('Clipboard module unavailable on this platform');
+  return VaultNative;
 }
 export async function clearClipboard() {
   await VaultNative?.clearClipboardNow();

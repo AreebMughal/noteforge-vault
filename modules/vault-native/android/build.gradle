@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.noteforge.vault'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.vaultnative"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // MIT-licensed JNI binding to the reference Argon2 C implementation.
+  implementation 'com.lambdapioneer.argon2kt:argon2kt:1.6.0'
+}

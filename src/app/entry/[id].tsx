@@ -92,7 +92,14 @@ function EntryView({ entryId }: { entryId: string }) {
       {copied && <Banner tone="info">{copied}</Banner>}
       <Card>
         {username !== '' && (
-          <Row label="Username" value={username} action="Copy" onAction={async () => { await copyPlain(username); setCopied('Username copied.'); }} />
+          <Row label="Username" value={username} action="Copy" onAction={async () => {
+            try {
+              await copyPlain(username);
+              setCopied('Username copied.');
+            } catch (e) {
+              Alert.alert('Couldn’t copy', errorText(e));
+            }
+          }} />
         )}
         {hasPassword && (
           <View style={{ gap: space.xs }}>

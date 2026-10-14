@@ -136,3 +136,39 @@ test('a token that stays invalid asks the user to sign in to Microsoft again', a
   const graph = new GraphClient(async () => 'never-valid', drive.fetch);
   await assert.rejects(graph.getFileById(drive.id), MicrosoftSignInRequired);
 });
+
+test('finds .kdbx files in Documents and subfolders even when Graph search returns nothing', async () => {
+  const item = (id: string, name: string, parent: string, extra: object = {}) =>
+    ({ id, name, size: 10, cTag: `c-${id}`, lastModifiedDateTime: `2026-01-0${id}T00:00:00Z`, parentReference: { path: parent }, ...extra });
+  const tree: Record<string, unknown[]> = {
+    '/me/drive/root/children': [item('9', 'notes.txt', '/drive/root:'), item('8', 'Work', '/drive/root:', { folder: {} })],
+    '/me/drive/special/documents/children': [item('1', 'Passwords.kdbx', '/drive/root:/Documents'), item('7', 'Archive', '/drive/root:/Documents', { folder: {} })],
+    '/me/drive/items/8/children': [item('2', 'work.KDBX', '/drive/root:/Work')],
+    '/me/drive/items/7/children': [item('3', 'old.kdbx', '/drive/root:/Documents/Archive')],
+  };
+  const calls: string[] = [];
+  const fetcher: Fetch = async (url) => {
+    const path = url.replace('https://graph.microsoft.com/v1.0', '').split('?')[0];
+    calls.push(path);
+    if (path.includes('/search(')) return json(200, { value: [] }); // the index misses everything
+    return tree[path] ? json(200, { value: tree[path] }) : json(404, { error: { message: 'nope' } });
+  };
+  const files = await new GraphClient(async () => 't', fetcher).findKdbxFiles();
+  assert.deepEqual(files.map((f) => f.path), ['Documents/Archive/old.kdbx', 'Work/work.KDBX', 'Documents/Passwords.kdbx']);
+  assert.ok(calls.some((c) => c.includes('/search(')), 'search is still tried');
+});
+
+test('findKdbxFiles survives search and Documents failing, and still reports sign-in loss', async () => {
+  const ok: Fetch = async (url) => {
+    const path = url.replace('https://graph.microsoft.com/v1.0', '').split('?')[0];
+    if (path === '/me/drive/root/children') {
+      return json(200, { value: [{ id: '1', name: 'a.kdbx', parentReference: { path: '/drive/root:' } }] });
+    }
+    return json(500, { error: { message: 'boom' } });
+  };
+  const files = await new GraphClient(async () => 't', ok).findKdbxFiles();
+  assert.deepEqual(files.map((f) => f.name), ['a.kdbx']);
+
+  const dead = new GraphClient(async () => { throw new MicrosoftSignInRequired(); }, ok);
+  await assert.rejects(() => dead.findKdbxFiles(), MicrosoftSignInRequired);
+});

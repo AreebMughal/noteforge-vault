@@ -166,6 +166,12 @@ https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
   APK ~76 MB). Release how-to: `RELEASING.md`. Variables `AZURE_CLIENT_ID` /
   `AZURE_TENANT` are set for OneDrive mode.
 
+- **v0.1.0 shipped without the native module** (found 2026-10-14): `.gitignore` had a bare
+  `android/`, which also hid `modules/vault-native/android/` (the Kotlin), so CI built an
+  APK with `VaultNative === null` (copy failed "Clipboard module unavailable"; Argon2 fell
+  back to quick-crypto). Fixed by anchoring to `/android/`. Never use unanchored
+  `android/`/`ios/` ignores here; check `git ls-files modules` after touching ignores.
+
 ## Next steps
 
 1. Build locally: `npm install`, create `.env` from `.env.example`,

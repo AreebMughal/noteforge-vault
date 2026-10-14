@@ -74,6 +74,8 @@ function encodePath(path: string) {
   return path.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
 }
 
+/** Subfolders of the root/Documents listed when looking for .kdbx files. */
+const MAX_BROWSED_FOLDERS = 25;
 /** Graph's cutoff for a plain PUT; larger files need an upload session. */
 const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
 /** Upload-session chunks must be a multiple of 320 KiB. */
@@ -119,11 +121,52 @@ export class GraphClient {
     return me.mail || me.userPrincipalName || me.displayName || 'Microsoft account';
   }
 
-  /** Everything that looks like a KeePass database, newest first. */
+  /**
+   * Everything that looks like a KeePass database, newest first.
+   *
+   * Graph's search runs on an index that often lags or misses files, so it is
+   * only one source. We also list the drive root and Documents folder and one
+   * level of subfolders directly, which is exact. Either source may fail
+   * (search is unsupported on some accounts) without hiding the other's results.
+   */
   async findKdbxFiles(): Promise<VaultFile[]> {
-    const r = await this.json<{ value: DriveItem[] }>("/me/drive/root/search(q='.kdbx')?$top=50");
-    return r.value
-      .filter((i) => !i.folder && i.name.toLowerCase().endsWith('.kdbx'))
+    const found = new Map<string, DriveItem>();
+    const take = (items: DriveItem[]) => {
+      for (const i of items) {
+        if (!i.folder && !i.deleted && i.name.toLowerCase().endsWith('.kdbx')) found.set(i.id, i);
+      }
+    };
+    // Auth/offline problems must surface; anything else is "this source gave nothing".
+    const soft = async (items: Promise<DriveItem[]>): Promise<DriveItem[]> => {
+      try {
+        return await items;
+      } catch (e) {
+        if (e instanceof MicrosoftSignInRequired || e instanceof OfflineError) throw e;
+        return [];
+      }
+    };
+    const list = async (path: string) =>
+      (await this.json<{ value: DriveItem[] }>(`${path}?$top=200`)).value;
+
+    const [searched, rootItems, docItems] = await Promise.all([
+      soft(this.json<{ value: DriveItem[] }>("/me/drive/root/search(q='.kdbx')?$top=50").then((r) => r.value)),
+      soft(list('/me/drive/root/children')),
+      soft(list('/me/drive/special/documents/children')),
+    ]);
+    take(searched);
+    take(rootItems);
+    take(docItems);
+
+    const folders = new Map<string, DriveItem>();
+    for (const i of [...rootItems, ...docItems]) if (i.folder) folders.set(i.id, i);
+    const sub = await Promise.all(
+      [...folders.values()].slice(0, MAX_BROWSED_FOLDERS).map((f) =>
+        soft(list(`/me/drive/items/${encodeURIComponent(f.id)}/children`)),
+      ),
+    );
+    sub.forEach(take);
+
+    return [...found.values()]
       .map(toVaultFile)
       .sort((a, b) => b.lastModified.localeCompare(a.lastModified));
   }
