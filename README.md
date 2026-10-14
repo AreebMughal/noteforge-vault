@@ -5,7 +5,7 @@ A second client for the NoteForge web vault. Same Supabase `vaults` row, same
 KeePassXC. No backend changes, no paid services.
 
 **Download (Android):** [NoteForge-Vault.apk](https://github.com/AreebMughal/noteforge-vault/releases/latest/download/NoteForge-Vault.apk)
-— always the newest release. [All releases](https://github.com/AreebMughal/noteforge-vault/releases)
+— always the newest release. How to build and release: [RELEASING.md](RELEASING.md). [All releases](https://github.com/AreebMughal/noteforge-vault/releases)
 
 ## What's in this build
 

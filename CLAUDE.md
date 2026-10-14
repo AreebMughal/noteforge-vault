@@ -162,9 +162,9 @@ https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
 - Each release also uploads `NoteForge-Vault.apk`, so
   https://github.com/AreebMughal/noteforge-vault/releases/latest/download/NoteForge-Vault.apk
   is the permanent download link.
-- Blocked: the owner's GitHub account was locked for a billing issue, so no Actions job
-  has run yet. After it's unlocked: run "Release APK" manually (workflow_dispatch) to
-  prove the Gradle build, then `git tag v1.0.0 && git push origin v1.0.0`.
+- Billing lock cleared; CI works. `v0.1.0` built and published (2026-10-04, ~22 min,
+  APK ~76 MB). Release how-to: `RELEASING.md`. Variables `AZURE_CLIENT_ID` /
+  `AZURE_TENANT` are set for OneDrive mode.
 
 ## Next steps
 
@@ -174,7 +174,7 @@ https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
 2. On device: self-test passes → sign in → create vault → web app shows it →
    conflict test (edit on web and phone) → export .kdbx opens in KeePassXC →
    offline read-only → fingerprint unlock → Google sign-in.
-3. Release: README steps (keystore, GitHub secrets/variables, `git tag v1.0.0`).
+3. Release: see `RELEASING.md` (`git tag vX.Y.Z && git push origin vX.Y.Z`).
 4. OneDrive mode is built (2026-10-03) but not yet tried against real
    Microsoft: needs `EXPO_PUBLIC_AZURE_CLIENT_ID` and the mobile redirect URI
    in Azure. Then test: web picks OneDrive → phone opens same file; phone
@@ -193,7 +193,7 @@ https://claude.ai/artifact/7wX4YJTV1UoKmNhX5F8c5y — screens in code match it.
 - Supabase URL + anon key (same as the web app's `.env.local`).
 - Google Cloud: Android OAuth client with package id + SHA-1 of `release.jks`
   (and one for the debug keystore when testing locally — `android/app/debug.keystore`
-  from prebuild, not `~/.android`). No `release.jks` created yet.
+  from prebuild, not `~/.android`).
 
 ## Commands
 
